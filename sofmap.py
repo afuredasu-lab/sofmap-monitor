@@ -1,4 +1,4 @@
-import time
+import os
 import requests
 from datetime import datetime
 from playwright.sync_api import sync_playwright
@@ -11,8 +11,6 @@ from playwright.sync_api import sync_playwright
 PRODUCT_URL = "https://www.sofmap.com/product_detail.aspx?sku=102321925"
 
 WEBHOOK_URL = os.environ["DISCORD_WEBHOOK_URL"]
-
-CHECK_INTERVAL = 300  # 5分
 
 
 # ========================================
@@ -116,78 +114,70 @@ def send_discord():
 
 with sync_playwright() as p:
 
-    browser = p.chromium.launch(headless=False)
+    browser = p.chromium.launch(headless=True)
 
     page = browser.new_page()
 
     print("================================")
-    print("ゼルダケース予約監視を開始します")
-    print("監視間隔：5分")
+    print("ゼルダケース予約監視")
     print("================================")
 
-    while True:
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print()
+    print("確認時刻:", now)
 
-        print()
-        print("確認時刻:", now)
+    # 現在の状態を確認
+    current_state = check_stock(page)
 
-        # 現在の状態を確認
-        current_state = check_stock(page)
+    print("現在の状態:", current_state)
 
-        print("現在の状態:", current_state)
+    # 前回の状態を取得
+    previous_state = load_previous_state()
 
-        # 前回の状態を取得
-        previous_state = load_previous_state()
+    print("前回の状態:", previous_state)
 
-        print("前回の状態:", previous_state)
+    # --------------------------------
+    # 初回
+    # --------------------------------
 
-        # --------------------------------
-        # 初回
-        # --------------------------------
+    if previous_state is None:
 
-        if previous_state is None:
+        print("初回確認です。状態を保存します。")
 
-            print("初回確認です。状態を保存します。")
+        save_state(current_state)
 
-            save_state(current_state)
+    # --------------------------------
+    # 売り切れ → 予約可能
+    # --------------------------------
 
-        # --------------------------------
-        # 売り切れ → 予約可能
-        # --------------------------------
-
-        elif (
-            previous_state == "sold_out"
-            and current_state == "available"
-        ):
-
-            print()
-            print("★★★★★★★★★★★★★★★★")
-            print("予約可能になりました！！！")
-            print("★★★★★★★★★★★★★★★★")
-
-            send_discord()
-
-            save_state(current_state)
-
-        # --------------------------------
-        # 通常
-        # --------------------------------
-
-        elif current_state != "unknown":
-
-            save_state(current_state)
-
-        else:
-
-            print("状態を判定できなかったため、前回状態を維持します。")
-
-        # --------------------------------
-        # 5分待つ
-        # --------------------------------
+    elif (
+        previous_state == "sold_out"
+        and current_state == "available"
+    ):
 
         print()
-        print("次回確認まで5分待ちます...")
+        print("★★★★★★★★★★★★★★★★")
+        print("予約可能になりました！！！")
+        print("★★★★★★★★★★★★★★★★")
 
-        time.sleep(CHECK_INTERVAL)
-        
+        send_discord()
+
+        save_state(current_state)
+
+    # --------------------------------
+    # 通常
+    # --------------------------------
+
+    elif current_state != "unknown":
+
+        save_state(current_state)
+
+    else:
+
+        print("状態を判定できなかったため、前回状態を維持します。")
+
+    browser.close()
+
+    print()
+    print("監視処理終了")
